@@ -44,8 +44,18 @@ const UserDashboard = () => {
         if (!symptoms) return;
         setLoading(true);
         try {
+            // patient_info is an array from the database join
+            const patientInfoId = patient.patient_info && patient.patient_info.length > 0
+                ? patient.patient_info[0].id
+                : null;
+
+            if (!patientInfoId) {
+                alert("Patient information not found. Please re-login.");
+                return;
+            }
+
             const res = await api.post('/api/consultation/predict', {
-                user_id: patient.id,
+                patient_info_id: patientInfoId,
                 symptoms,
                 weight: healthMetrics.weight || null,
                 height: healthMetrics.height || null,
@@ -74,9 +84,8 @@ const UserDashboard = () => {
         // Navigate to appointment booking with consultation data
         navigate("/appointment", {
             state: {
-                consultationId: result.id,
-                userId: patient.id,
-                riskLevel: result.risk_factor
+                consultation: result,
+                patient: patient
             }
         });
     };

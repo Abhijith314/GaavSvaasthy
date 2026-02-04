@@ -11,6 +11,7 @@ const PORT = process.env.PORT || 5000;
 const patientRoutes = require('./routes/patientRoutes');
 const consultationRoutes = require('./routes/consultationRoutes');
 const appointmentRoutes = require('./routes/appointmentRoutes');
+const doctorRoutes = require('./routes/doctorRoutes');
 
 app.use(cors());
 app.use(express.json());
@@ -22,6 +23,7 @@ console.log('Appointment Routes:', appointmentRoutes);
 app.use('/api/patients', patientRoutes);
 app.use('/api/consultation', consultationRoutes);
 app.use('/api/appointments', appointmentRoutes);
+app.use('/api/doctors', doctorRoutes);
 
 app.get('/', (req, res) => {
     res.send('API is running...');
