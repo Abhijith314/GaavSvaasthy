@@ -1,153 +1,124 @@
 import React, { useState, useEffect } from "react";
-import { Box, Button, TextField, Typography, Card, CardContent, CircularProgress, Select, MenuItem, FormControl, InputLabel, Alert } from "@mui/material";
+import { Box, Button, TextField, Typography, Card, CardContent, Grid, CircularProgress, FormControl, InputLabel, Select, MenuItem, Chip } from "@mui/material";
 import { useLocation, useNavigate } from "react-router-dom";
 import api from "../api/axios";
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import MedicalServicesIcon from '@mui/icons-material/MedicalServices';
+import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import LocalHospitalIcon from '@mui/icons-material/LocalHospital';
 
 const AppointmentBooking = () => {
     const location = useLocation();
     const navigate = useNavigate();
-    const { consultationId, userId, riskLevel } = location.state || {};
+    const { consultation, patient } = location.state || {};
 
-    const [doctors, setDoctors] = useState([]);
-    const [selectedDoctor, setSelectedDoctor] = useState("");
-    const [appointmentDate, setAppointmentDate] = useState("");
-    const [availableSlots, setAvailableSlots] = useState([]);
-    const [selectedSlot, setSelectedSlot] = useState("");
+    const [selectedDate, setSelectedDate] = useState(getTomorrowDate());
+    const [availableDoctors, setAvailableDoctors] = useState([]);
+    const [selectedDoctor, setSelectedDoctor] = useState(null);
+    const [selectedSlot, setSelectedSlot] = useState(null);
     const [loading, setLoading] = useState(false);
-    const [bookingComplete, setBookingComplete] = useState(false);
-    const [error, setError] = useState("");
+    const [booking, setBooking] = useState(false);
+    const [confirmed, setConfirmed] = useState(false);
 
     useEffect(() => {
-        if (!consultationId || !userId) {
-            navigate("/consultation");
-            return;
+        if (selectedDate) {
+            fetchAvailableDoctors();
         }
-        fetchDoctors();
-    }, [consultationId, userId, navigate]);
+    }, [selectedDate]);
 
-    const fetchDoctors = async () => {
-        try {
-            const res = await api.get('/api/appointments/doctors');
-            setDoctors(res.data);
-        } catch (err) {
-            console.error(err);
-            setError("Failed to load doctors");
-        }
-    };
+    function getTomorrowDate() {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        return tomorrow.toISOString().split('T')[0];
+    }
 
-    const fetchAvailableSlots = async (doctorId, date) => {
-        try {
-            const res = await api.get(`/api/appointments/availability/${doctorId}/${date}`);
-
-            // Generate time slots based on availability
-            if (res.data.availability && res.data.availability.length > 0) {
-                const avail = res.data.availability[0];
-                const slots = generateTimeSlots(
-                    avail.start_time,
-                    avail.end_time,
-                    avail.slot_duration || 30,
-                    res.data.bookedSlots
-                );
-                setAvailableSlots(slots);
-            } else {
-                setAvailableSlots([]);
-                setError("No availability for selected date");
-            }
-        } catch (err) {
-            console.error(err);
-            setError("Failed to load available slots");
-        }
-    };
-
-    const generateTimeSlots = (startTime, endTime, duration, bookedSlots) => {
-        const slots = [];
-        let current = new Date(`2000-01-01T${startTime}`);
-        const end = new Date(`2000-01-01T${endTime}`);
-
-        while (current < end) {
-            const slotStart = current.toTimeString().slice(0, 5);
-            current = new Date(current.getTime() + duration * 60000);
-            const slotEnd = current.toTimeString().slice(0, 5);
-
-            // Check if slot is not booked
-            const isBooked = bookedSlots.some(
-                slot => slot.slot_start === slotStart
-            );
-
-            if (!isBooked) {
-                slots.push({ start: slotStart, end: slotEnd });
-            }
-        }
-
-        return slots;
-    };
-
-    const handleDoctorChange = (doctorId) => {
-        setSelectedDoctor(doctorId);
-        setAppointmentDate("");
-        setSelectedSlot("");
-        setAvailableSlots([]);
-    };
-
-    const handleDateChange = (date) => {
-        setAppointmentDate(date);
-        setSelectedSlot("");
-        if (selectedDoctor && date) {
-            fetchAvailableSlots(selectedDoctor, date);
-        }
-    };
-
-    const handleBookAppointment = async () => {
-        if (!selectedDoctor || !appointmentDate || !selectedSlot) {
-            setError("Please select all fields");
-            return;
-        }
-
+    const fetchAvailableDoctors = async () => {
         setLoading(true);
-        setError("");
-
         try {
-            await api.post('/api/appointments/book', {
-                doctor_id: selectedDoctor,
-                patient_id: userId,
-                consultation_id: consultationId,
-                appointment_date: appointmentDate,
-                slot_start: selectedSlot.start,
-                slot_end: selectedSlot.end
-            });
-
-            setBookingComplete(true);
+            const res = await api.get(`/api/doctors/available?date=${selectedDate}`);
+            setAvailableDoctors(res.data);
+            setSelectedDoctor(null);
+            setSelectedSlot(null);
         } catch (err) {
             console.error(err);
-            setError(err.response?.data?.error || "Booking failed. Please try again.");
+            alert('Failed to fetch available doctors');
         } finally {
             setLoading(false);
         }
     };
 
-    if (bookingComplete) {
+    const handleBookAppointment = async () => {
+        if (!patient || !selectedDoctor || !selectedSlot) return;
+
+        // Get patient_info.id from the patient object
+        const patientInfoId = patient.patient_info && patient.patient_info.length > 0
+            ? patient.patient_info[0].id
+            : null;
+
+        if (!patientInfoId) {
+            alert("Patient information not found. Please return to login.");
+            navigate('/login');
+            return;
+        }
+
+        setBooking(true);
+        try {
+            const res = await api.post('/api/appointments', {
+                patient_id: patientInfoId,  // This references patient_info.id
+                doctor_id: selectedDoctor.doctor_id,
+                consultation_id: consultation?.id,
+                appointment_date: selectedDate,
+                slot_start: selectedSlot.start,
+                slot_end: selectedSlot.end
+            });
+            setConfirmed(true);
+        } catch (err) {
+            console.error(err);
+            if (err.response?.status === 409) {
+                alert('This slot is no longer available. Please select another.');
+                fetchAvailableDoctors();
+            } else {
+                alert('Booking failed. Please try again.');
+            }
+        } finally {
+            setBooking(false);
+        }
+    };
+
+    if (!patient) {
+        navigate('/login');
+        return null;
+    }
+
+    if (confirmed) {
         return (
-            <Box sx={{ minHeight: "100vh", bgcolor: "#f5f5f5", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Card sx={{ p: 4, maxWidth: "500px", textAlign: "center" }}>
-                    <CheckCircleIcon sx={{ fontSize: 80, color: "#388e3c", mb: 2 }} />
-                    <Typography variant="h4" sx={{ mb: 2, color: "#388e3c", fontWeight: "bold" }}>
+            <Box sx={{
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                minHeight: "100vh",
+                bgcolor: "#e8f5e9",
+                p: 2
+            }}>
+                <Card sx={{ maxWidth: 500, p: 4, textAlign: 'center' }}>
+                    <LocalHospitalIcon sx={{ fontSize: 80, color: '#2e7d32', mb: 2 }} />
+                    <Typography variant="h4" color="#2e7d32" fontWeight="bold" gutterBottom>
                         Appointment Confirmed!
                     </Typography>
-                    <Typography variant="body1" sx={{ mb: 1 }}>
-                        Your emergency appointment has been successfully booked.
+                    <Typography variant="body1" sx={{ mb: 3 }}>
+                        Your appointment with <strong>{selectedDoctor.doctor_name}</strong> has been successfully booked.
                     </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                        Date: {appointmentDate} at {selectedSlot?.start}
-                    </Typography>
+                    <Box sx={{ bgcolor: '#f1f8e9', p: 2, borderRadius: 2, mb: 3 }}>
+                        <Typography><strong>Date:</strong> {new Date(selectedDate).toLocaleDateString()}</Typography>
+                        <Typography><strong>Time:</strong> {selectedSlot.start} - {selectedSlot.end}</Typography>
+                        <Typography><strong>Specialization:</strong> {selectedDoctor.specialization}</Typography>
+                    </Box>
                     <Button
                         variant="contained"
-                        size="large"
-                        onClick={() => navigate("/consultation")}
-                        sx={{ bgcolor: "#2e7d32", "&:hover": { bgcolor: "#1b5e20" } }}
+                        fullWidth
+                        sx={{ bgcolor: '#2e7d32', '&:hover': { bgcolor: '#1b5e20' } }}
+                        onClick={() => navigate('/consultation')}
                     >
-                        Return to Dashboard
+                        Back to Dashboard
                     </Button>
                 </Card>
             </Box>
@@ -155,101 +126,110 @@ const AppointmentBooking = () => {
     }
 
     return (
-        <Box sx={{ minHeight: "100vh", bgcolor: "#f5f5f5" }}>
-            {/* Header */}
-            <Box sx={{
-                bgcolor: "#d32f2f",
-                color: "white",
-                p: 2,
-                display: "flex",
-                alignItems: "center",
-                gap: 2,
-                boxShadow: 2
-            }}>
-                <MedicalServicesIcon />
-                <Typography variant="h6" fontWeight="bold">Emergency Appointment Booking</Typography>
-            </Box>
+        <Box sx={{
+            minHeight: "100vh",
+            bgcolor: "#f5f5f5",
+            p: 3
+        }}>
+            <Box sx={{ maxWidth: 900, margin: 'auto' }}>
+                {/* Header */}
+                <Typography variant="h4" sx={{ mb: 1, color: '#2e7d32', fontWeight: 'bold' }}>
+                    Book Doctor Appointment
+                </Typography>
+                {consultation && (
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                        High risk detected: {consultation.diagnosis}
+                    </Typography>
+                )}
 
-            {/* Main Content */}
-            <Box sx={{ p: 3, maxWidth: "700px", margin: "auto" }}>
-                <Alert severity="error" sx={{ mb: 3 }}>
-                    <Typography variant="body1" fontWeight="bold">High Risk Detected</Typography>
-                    <Typography variant="body2">Immediate medical attention is recommended. Please book an appointment with a doctor.</Typography>
-                </Alert>
-
-                <Card sx={{ p: 3, borderRadius: 3 }}>
-                    <CardContent>
-                        <Typography variant="h6" sx={{ mb: 3, color: "#2e7d32" }}>
-                            Select Doctor & Time
-                        </Typography>
-
-                        <FormControl fullWidth sx={{ mb: 3 }}>
-                            <InputLabel>Select Doctor</InputLabel>
-                            <Select
-                                value={selectedDoctor}
-                                onChange={(e) => handleDoctorChange(e.target.value)}
-                                label="Select Doctor"
-                            >
-                                {doctors.map((doctor) => (
-                                    <MenuItem key={doctor.id} value={doctor.id}>
-                                        Dr. {doctor.name} - {doctor.specialization}
-                                    </MenuItem>
-                                ))}
-                            </Select>
-                        </FormControl>
-
-                        {selectedDoctor && (
-                            <TextField
-                                fullWidth
-                                type="date"
-                                label="Appointment Date"
-                                value={appointmentDate}
-                                onChange={(e) => handleDateChange(e.target.value)}
-                                InputLabelProps={{ shrink: true }}
-                                inputProps={{ min: new Date().toISOString().split('T')[0] }}
-                                sx={{ mb: 3 }}
-                            />
-                        )}
-
-                        {availableSlots.length > 0 && (
-                            <FormControl fullWidth sx={{ mb: 3 }}>
-                                <InputLabel>Select Time Slot</InputLabel>
-                                <Select
-                                    value={selectedSlot}
-                                    onChange={(e) => setSelectedSlot(e.target.value)}
-                                    label="Select Time Slot"
-                                >
-                                    {availableSlots.map((slot, index) => (
-                                        <MenuItem key={index} value={slot}>
-                                            {slot.start} - {slot.end}
-                                        </MenuItem>
-                                    ))}
-                                </Select>
-                            </FormControl>
-                        )}
-
-                        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-
-                        <Box sx={{ display: 'flex', gap: 2 }}>
-                            <Button
-                                variant="outlined"
-                                onClick={() => navigate("/consultation")}
-                                sx={{ flex: 1 }}
-                            >
-                                Cancel
-                            </Button>
-                            <Button
-                                variant="contained"
-                                color="error"
-                                onClick={handleBookAppointment}
-                                disabled={loading || !selectedDoctor || !appointmentDate || !selectedSlot}
-                                sx={{ flex: 1 }}
-                            >
-                                {loading ? <CircularProgress size={24} color="inherit" /> : "Confirm Booking"}
-                            </Button>
-                        </Box>
-                    </CardContent>
+                {/* Date Selection */}
+                <Card sx={{ p: 3, mb: 3 }}>
+                    <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <CalendarTodayIcon /> Select Date
+                    </Typography>
+                    <TextField
+                        type="date"
+                        value={selectedDate}
+                        onChange={(e) => setSelectedDate(e.target.value)}
+                        inputProps={{ min: getTomorrowDate() }}
+                        fullWidth
+                    />
                 </Card>
+
+                {/* Available Doctors */}
+                {loading ? (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+                        <CircularProgress />
+                    </Box>
+                ) : availableDoctors.length === 0 ? (
+                    <Card sx={{ p: 3, textAlign: 'center' }}>
+                        <Typography>No doctors available on this date</Typography>
+                    </Card>
+                ) : (
+                    <Grid container spacing={2}>
+                        {availableDoctors.map((doctor) => (
+                            <Grid item xs={12} key={doctor.doctor_id}>
+                                <Card
+                                    sx={{
+                                        p: 2,
+                                        border: selectedDoctor?.doctor_id === doctor.doctor_id ? '2px solid #2e7d32' : '1px solid #e0e0e0',
+                                        cursor: 'pointer'
+                                    }}
+                                    onClick={() => {
+                                        setSelectedDoctor(doctor);
+                                        setSelectedSlot(null);
+                                    }}
+                                >
+                                    <Typography variant="h6" color="#2e7d32">{doctor.doctor_name}</Typography>
+                                    <Typography variant="body2" color="text.secondary">{doctor.specialization}</Typography>
+
+                                    {selectedDoctor?.doctor_id === doctor.doctor_id && (
+                                        <Box sx={{ mt: 2 }}>
+                                            <Typography variant="subtitle2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                <AccessTimeIcon fontSize="small" /> Available Time Slots
+                                            </Typography>
+                                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                                                {doctor.available_slots.map((slot, idx) => (
+                                                    <Chip
+                                                        key={idx}
+                                                        label={`${slot.start.substring(0, 5)} - ${slot.end.substring(0, 5)}`}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setSelectedSlot(slot);
+                                                        }}
+                                                        color={selectedSlot?.start === slot.start ? "success" : "default"}
+                                                        variant={selectedSlot?.start === slot.start ? "filled" : "outlined"}
+                                                    />
+                                                ))}
+                                            </Box>
+                                        </Box>
+                                    )}
+                                </Card>
+                            </Grid>
+                        ))}
+                    </Grid>
+                )}
+
+                {/* Book Button */}
+                {selectedDoctor && selectedSlot && (
+                    <Box sx={{ mt: 3, textAlign: 'center' }}>
+                        <Button
+                            variant="contained"
+                            size="large"
+                            onClick={handleBookAppointment}
+                            disabled={booking}
+                            sx={{
+                                bgcolor: '#d32f2f',
+                                px: 5,
+                                py: 1.5,
+                                fontSize: '1.1rem',
+                                '&:hover': { bgcolor: '#b71c1c' }
+                            }}
+                        >
+                            {booking ? <CircularProgress size={24} color="inherit" /> : 'Confirm Booking'}
+                        </Button>
+                    </Box>
+                )}
             </Box>
         </Box>
     );

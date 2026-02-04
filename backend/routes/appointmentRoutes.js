@@ -2,69 +2,16 @@ const express = require('express');
 const router = express.Router();
 const supabase = require('../config/supabaseClient');
 
-// Get all active doctors
-router.get('/doctors', async (req, res) => {
-    if (!supabase) {
-        return res.status(503).json({ error: 'Database service unavailable' });
-    }
-
-    try {
-        const { data, error } = await supabase
-            .from('doctors')
-            .select('*')
-            .eq('active', true);
-
-        if (error) throw error;
-
-        res.json(data);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Get available time slots for a specific doctor on a specific date
-router.get('/availability/:doctor_id/:date', async (req, res) => {
-    const { doctor_id, date } = req.params;
+// Book a new appointment
+router.post('/', async (req, res) => {
+    const { patient_id, doctor_id, consultation_id, appointment_date, slot_start, slot_end } = req.body;
 
     if (!supabase) {
         return res.status(503).json({ error: 'Database service unavailable' });
     }
 
-    try {
-        // Get doctor's availability for the date
-        const { data: availability, error: availError } = await supabase
-            .from('doctor_availability')
-            .select('*')
-            .eq('doctor_id', doctor_id)
-            .eq('available_date', date);
-
-        if (availError) throw availError;
-
-        // Get already booked appointments for this doctor on this date
-        const { data: bookedSlots, error: bookError } = await supabase
-            .from('appointments')
-            .select('slot_start, slot_end')
-            .eq('doctor_id', doctor_id)
-            .eq('appointment_date', date)
-            .neq('status', 'cancelled');
-
-        if (bookError) throw bookError;
-
-        res.json({
-            availability,
-            bookedSlots: bookedSlots || []
-        });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Book an appointment
-router.post('/book', async (req, res) => {
-    const { doctor_id, patient_id, consultation_id, appointment_date, slot_start, slot_end } = req.body;
-
-    if (!supabase) {
-        return res.status(503).json({ error: 'Database service unavailable' });
+    if (!patient_id || !doctor_id || !appointment_date || !slot_start || !slot_end) {
+        return res.status(400).json({ error: 'Missing required fields' });
     }
 
     try {
@@ -75,32 +22,36 @@ router.post('/book', async (req, res) => {
             .eq('doctor_id', doctor_id)
             .eq('appointment_date', appointment_date)
             .eq('slot_start', slot_start)
-            .neq('status', 'cancelled');
+            .in('status', ['BOOKED', 'CONFIRMED']);
 
         if (checkError) throw checkError;
 
         if (existing && existing.length > 0) {
-            return res.status(409).json({ error: 'Time slot is already booked' });
+            return res.status(409).json({ error: 'This slot is no longer available' });
         }
 
         // Create appointment
         const { data, error } = await supabase
             .from('appointments')
             .insert([{
-                doctor_id,
                 patient_id,
+                doctor_id,
                 consultation_id,
                 appointment_date,
                 slot_start,
                 slot_end,
-                status: 'scheduled'
+                status: 'BOOKED'
             }])
-            .select();
+            .select(`
+                *,
+                doctors (name, specialization)
+            `);
 
         if (error) throw error;
 
         res.status(201).json(data[0]);
     } catch (err) {
+        console.error(err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -116,14 +67,18 @@ router.get('/patient/:patient_id', async (req, res) => {
     try {
         const { data, error } = await supabase
             .from('appointments')
-            .select('*, doctors(*)')
+            .select(`
+                *,
+                doctors (name, specialization, phone)
+            `)
             .eq('patient_id', patient_id)
-            .order('appointment_date', { ascending: false });
+            .order('appointment_date', { ascending: true });
 
         if (error) throw error;
 
         res.json(data);
     } catch (err) {
+        console.error(err);
         res.status(500).json({ error: err.message });
     }
 });
