@@ -246,9 +246,9 @@ const Consultation = () => {
                                         <Typography sx={{ mb: 2 }}>
                                             Your condition appears stable. Rest and hydration are advised.
                                         </Typography>
-                                        <Button variant="contained" color="success" fullWidth size="large">
+                                        {/* <Button variant="contained" color="success" fullWidth size="large">
                                             View & Download Prescription
-                                        </Button>
+                                        </Button> */}
                                     </Box>
                                 )}
                             </Box>
